@@ -1,0 +1,73 @@
+name: CI/CD
+
+on:
+  push:
+    branches:
+      - main  # or specify the branch you want to deploy from
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    # Step 1: Checkout the repository
+    - name: Checkout repository
+      uses: actions/checkout@v2
+
+    # Step 2: Set up PHP environment
+    - name: Set up PHP
+      uses: shivammathur/setup-php@v2
+      with:
+        php-version: '7.4'  # Specify your PHP version (could be 7.x or 8.x)
+        extensions: mbstring, intl, curl, opcache, json, mysqli, pdo_mysql  # List all required extensions
+
+    # Step 3: Install dependencies via Composer
+    - name: Install dependencies
+      run: |
+        curl -sS https://getcomposer.org/installer | php
+        php composer.phar install --no-interaction --prefer-dist
+
+    # Step 4: Run Tests (Optional, if you have tests)
+    - name: Run tests
+      run: php vendor/bin/phpunit tests  # Replace with your test command if applicable
+
+  deploy:
+    runs-on: ubuntu-latest
+    needs: build  # Make sure the build job is successful before deploying
+
+    steps:
+    # Step 1: Checkout the repository
+    - name: Checkout repository
+      uses: actions/checkout@v2
+
+    # Step 2: Set up AWS CLI
+    - name: Set up AWS CLI
+      uses: aws-actions/configure-aws-credentials@v1
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}   # Store in GitHub secrets
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}   # Store in GitHub secrets
+        aws-region: us-east-1  # Change this to the AWS region of your Elastic Beanstalk app
+
+    # Step 3: Install required utilities for deployment
+    - name: Install zip
+      run: sudo apt-get install -y zip
+
+    # Step 4: Package the application code
+    - name: Create application ZIP
+      run: |
+        zip -r application.zip . -x .git* .github* .gitignore tests/*
+
+    # Step 5: Deploy the application to AWS Elastic Beanstalk
+    - name: Deploy to AWS Elastic Beanstalk
+      run: |
+        aws elasticbeanstalk create-application-version \
+          --application-name your-application-name \
+          --version-label $GITHUB_SHA \
+          --source-bundle S3Bucket="your-bucket-name",S3Key="application.zip"
+        
+        aws elasticbeanstalk update-environment \
+          --environment-name your-environment-name \
+          --version-label $GITHUB_SHA
